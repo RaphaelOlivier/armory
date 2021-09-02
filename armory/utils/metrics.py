@@ -1084,7 +1084,7 @@ SUPPORTED_METRICS = {
     "mars_mean_l2": mars_mean_l2,
     "mars_mean_patch": mars_mean_patch,
     "word_error_rate": word_error_rate,
-    "char_error_rate" : char_error_rate
+    "char_error_rate" : char_error_rate,
     "object_detection_AP_per_class": object_detection_AP_per_class,
 }
 
