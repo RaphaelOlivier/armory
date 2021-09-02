@@ -212,6 +212,44 @@ def _word_error_rate(y_i, y_pred_i):
     return (matrix[r_length][h_length], r_length)
 
 
+def char_error_rate(y, y_pred):
+    """
+    Return the word error rate for a batch of transcriptions.
+    """
+    if len(y) != len(y_pred):
+        raise ValueError(f"len(y) {len(y)} != len(y_pred) {len(y_pred)}")
+    return [_char_error_rate(y_i, y_pred_i) for (y_i, y_pred_i) in zip(y, y_pred)]
+
+
+def _char_error_rate(y_i, y_pred_i):
+    if isinstance(y_i, str):
+        reference = list(y_i)
+    elif isinstance(y_i, bytes):
+        reference = list(y_i.decode("utf-8"))
+    else:
+        raise TypeError(f"y_i is of type {type(y_i)}, expected string or bytes")
+    hypothesis = list(y_pred_i)
+    r_length = len(reference)
+    h_length = len(hypothesis)
+    matrix = np.zeros((r_length + 1, h_length + 1))
+    for i in range(r_length + 1):
+        for j in range(h_length + 1):
+            if i == 0:
+                matrix[0][j] = j
+            elif j == 0:
+                matrix[i][0] = i
+    for i in range(1, r_length + 1):
+        for j in range(1, h_length + 1):
+            if reference[i - 1] == hypothesis[j - 1]:
+                matrix[i][j] = matrix[i - 1][j - 1]
+            else:
+                substitute = matrix[i - 1][j - 1] + 1
+                insertion = matrix[i][j - 1] + 1
+                deletion = matrix[i - 1][j] + 1
+                matrix[i][j] = min(substitute, insertion, deletion)
+    return (matrix[r_length][h_length], r_length)
+
+
 # Metrics specific to MARS model preprocessing in video UCF101 scenario
 
 
@@ -1046,6 +1084,7 @@ SUPPORTED_METRICS = {
     "mars_mean_l2": mars_mean_l2,
     "mars_mean_patch": mars_mean_patch,
     "word_error_rate": word_error_rate,
+    "char_error_rate" : char_error_rate
     "object_detection_AP_per_class": object_detection_AP_per_class,
 }
 
@@ -1138,6 +1177,18 @@ class MetricList:
             return float(total_edit_distance / total_words)
         else:
             raise ValueError("total_wer() only for WER metric")
+
+    def total_cer(self):
+        # checks if all values are tuples from the CER metric
+        if all(isinstance(cer_tuple, tuple) for cer_tuple in self._values):
+            total_edit_distance = 0
+            total_chars = 0
+            for cer_tuple in self._values:
+                total_edit_distance += cer_tuple[0]
+                total_chars += cer_tuple[1]
+            return float(total_edit_distance / total_chars)
+        else:
+            raise ValueError("total_cer() only for CER metric")
 
     def compute_non_elementwise_metric(self):
         return self.function(self._input_labels, self._input_preds)
@@ -1273,6 +1324,12 @@ class MetricsLogger:
                     f"Word error rate on {task_type} examples relative to {wrt} labels: "
                     f"{metric.total_wer():.2%}"
                 )
+            # Do not calculate mean CER, calcuate total CER
+            elif metric.name == "char_error_rate":
+                logger.info(
+                    f"Character error rate on {task_type} examples relative to {wrt} labels: "
+                    f"{metric.total_cer():.2%}"
+                )
             elif metric.name in self.non_elementwise_metrics:
                 metric_result = metric.compute_non_elementwise_metric()
                 logger.info(
@@ -1326,6 +1383,13 @@ class MetricsLogger:
                     except ZeroDivisionError:
                         raise ZeroDivisionError(
                             f"No values to calculate WER in {prefix}_{metric.name}"
+                        )
+                elif metric.name == "char_error_rate":
+                    try:
+                        results[f"{prefix}_total_{metric.name}"] = metric.total_cer()
+                    except ZeroDivisionError:
+                        raise ZeroDivisionError(
+                            f"No values to calculate CER in {prefix}_{metric.name}"
                         )
 
         for name in self.computational_resource_dict:
